@@ -50,30 +50,20 @@ kvminit()
 pagetable_t
 ukvminit()
 {
-  pagetable_t pagetable = (pagetable_t) kalloc();
-  memset(pagetable, 0, PGSIZE);
+  pagetable_t pagetable = uvmcreate();
 
-  // uart registers
+  //  cause lowest kernal vm start lies in entry0 of root pgtbl,
+  // we can share entry 1-511 from general kernal pgtbl
+  for(int i = 1; i < 512; i++){
+    pagetable[i] = kernel_pagetable[i];
+  }
+
+  //map entry 0 to an individual level1 pagetbl manually to keep it indentical to the kernel page table
+  //we need a helper function(ukvmmap) because existing kvmmap() handle general kernal pgtbl inplicitly
   ukvmmap(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
-
-  // virtio mmio disk interface
   ukvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-
-  // CLINT
   ukvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
-
-  // PLIC
   ukvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
-
-  // map kernel text executable and read-only.
-  ukvmmap(pagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
-
-  // map kernel data and the physical RAM we'll make use of.
-  ukvmmap(pagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
-
-  // map the trampoline for trap entry/exit to
-  // the highest virtual address in the kernel.
-  ukvmmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
   return pagetable;
 }
 

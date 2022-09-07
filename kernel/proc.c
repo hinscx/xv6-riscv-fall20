@@ -129,38 +129,32 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   p->k_pgtbl = ukvminit();
-  uint64 kva = p->kstack;
-  uint64 kpa = kvmpa(kva);
-  if(kpa == 0)
-    panic("kalloc");
-  ukvmmap(p->k_pgtbl, kva, kpa, PGSIZE, PTE_R | PTE_W);
   return p;
 }
 
-//free kernel page table
-void proc_free_kern_pgt(pagetable_t pgt, struct proc *p){
-  uvmunmap(pgt, UART0, 1, 0);
-  // virtio mmio disk interface
-  uvmunmap(pgt, VIRTIO0, 1, 0);
-  // CLINT
-  uvmunmap(pgt, CLINT, PGROUNDUP(0x10000)/PGSIZE, 0);
-
-  // PLIC
-  uvmunmap(pgt, PLIC, PGROUNDUP(0x400000)/PGSIZE, 0);
-  // map kernel text executable and read-only.
-  uvmunmap(pgt, KERNBASE, PGROUNDUP((uint64)etext-KERNBASE)/PGSIZE, 0);
-  
-  // map kernel data and the physical RAM we'll make use of.
-  uvmunmap(pgt, (uint64)etext, PGROUNDUP(PHYSTOP-(uint64)etext)/PGSIZE, 0);
-  // map the trampoline for trap entry/exit to
-  // the highest virtual address in the kernel.
-  uvmunmap(pgt, TRAMPOLINE, 1, 0);
-
-  //kern stk
-  uvmunmap(pgt, p->kstack, 1, 0);
-
-  uvmfree(pgt, 0);
+//according to the Q&A Lecture 7
+//a specialize kvmfree to match kvmcreate
+//because we share the 1-511 ,only entry 0 need clean to consider is entry 0
+//thus we only have one level1 pagetable and possibly 512 level2 pagetable(bottom-level) to clean
+//no need to free the PA which is pointed by the bottom-level pte because non were allocated by kvmcreate
+void proc_free_kern_pgt(pagetable_t pagetable)
+{
+  pte_t pte = pagetable[0];
+  pagetable_t level1 = (pagetable_t)PTE2PA(pte);
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t p = level1[i];
+    if (p & PTE_V){
+      uint64 level2 = PTE2PA(p);
+      kfree((void *) level2);
+      level1[i] =0;
+    }
+  }
+  kfree((void *)level1);
+  kfree((void *)pagetable);
 }
+
+
 
 // free a proc structure and the data hanging from it,
 // including user pages.
@@ -174,7 +168,7 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   if(p->k_pgtbl)
-    proc_free_kern_pgt(p->k_pgtbl, p);
+    proc_free_kern_pgt(p->k_pgtbl);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
