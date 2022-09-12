@@ -128,7 +128,11 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-  p->k_pgtbl = ukvminit();
+  if((p->k_pgtbl = ukvminit()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
   return p;
 }
 
@@ -248,7 +252,12 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
-
+  uint64 pa ;
+  if((pa  = walkaddr(p->pagetable, 0)) == 0)
+    panic("userinit: fail to init ukpgtbl.");
+  
+  ukvmmap(p->k_pgtbl, 0, pa, PGSIZE, PTE_R | PTE_W | PTE_X);
+  printf("alex finish userinit\n");
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -266,18 +275,24 @@ userinit(void)
 int
 growproc(int n)
 {
-  uint sz;
+  uint oldsz, newsz;
   struct proc *p = myproc();
 
-  sz = p->sz;
+  oldsz = p->sz;
+  newsz = oldsz + n;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    if(newsz >= PLIC){
+      printf("user vm overflow!");
       return -1;
     }
+    if((newsz = uvmalloc(p->pagetable, oldsz, newsz)) == 0) {
+      return -1;
+    }
+    copy_upgtbl_to_ukpgtbl(p->pagetable, p->k_pgtbl, oldsz, newsz);
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    newsz = uvmdealloc(p->pagetable, oldsz, newsz);
   }
-  p->sz = sz;
+  p->sz = newsz;
   return 0;
 }
 
@@ -301,10 +316,12 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+
   np->sz = p->sz;
 
   np->parent = p;
-
+  copy_upgtbl_to_ukpgtbl(np->pagetable, np->k_pgtbl, 0, np->sz);
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -505,7 +522,7 @@ scheduler(void)
         sfence_vma();
         swtch(&c->context, &p->context);
 
-        kvminithart();
+       
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -516,6 +533,7 @@ scheduler(void)
     }
 #if !defined (LAB_FS)
     if(found == 0) {
+      kvminithart();
       intr_on();
       asm volatile("wfi");
     }

@@ -30,10 +30,37 @@ int
 copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   struct proc *p = myproc();
+  // printf("----------------------------------------\n.");
+  // vmprint(p->k_pgtbl);
+  // printf("----------------------------------------\n.");
+  // vmprint(p->pagetable);
+  // printf("----------------------------------------\n.");
+  //printf("p's pgtbl:%d\n.", p->pagetable);
+  // pte_t *pte1 = walk(p->k_pgtbl, srcva, 0);
+  // uint64 pa1 = PTE2PA(*pte1);
+  // printf("pa1%p\n.", pa1);
+  // if((*pte1 & PTE_V) == 0) {
+  //   printf("INVALID PTE1\n.");
+  // } else {
+  //   printf("VALID PTE1\n.");
+  // }
+  // printf("walk1 done%p\n.", pte1);
+
+
+  // pte_t *pte2 = walk(p->pagetable, srcva, 0);
+  // uint64 pa2 = PTE2PA(*pte2);
+  // printf("pa2%p\n.", pa2);
+  // if((*pte2 & PTE_V) == 0) {
+  //   printf("INVALID PTE2\n.");
+  // } else {
+  //   printf("VALID PTE2\n.");
+  // }
+  // printf("walk2 done%p\n.", pte2);
 
   if (srcva >= p->sz || srcva+len >= p->sz || srcva+len < srcva)
     return -1;
   memmove((void *) dst, (void *)srcva, len);
+ // printf("memmove done\n.");
   stats.ncopyin++;   // XXX lock
   return 0;
 }
